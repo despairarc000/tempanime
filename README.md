@@ -1,40 +1,61 @@
-# Loxada Anime — role-routing foundation
+# Loxada Anime — temporary authentication and role shell
 
-Minimal Next.js + Supabase starter for the Anime department. Suppliers are deliberately not implemented.
+This repository is a **minimal** Next.js + Supabase web application. It is not a running reader/streaming catalog, subscription system, or supplier portal. Two protected home routes intentionally render blank pages.
 
-## Current roles and destinations
+## Registration: normal viewer accounts
 
-| Role | Assigned by | Authorized destination |
+The form at `/register` collects only:
+
+1. Email address — the Supabase login/contact identifier.
+2. Password — 8–128 characters; stored by Supabase Auth (not in an application profile).
+3. Password confirmation — compared server-side, **not persisted**.
+4. Acknowledgment that the user read the on-screen, versioned account-use notice.
+
+No legal name, phone number, postal address, DOB, payment details, public username, or subscription choice is requested at signup. The selected v1.0 account definitions do not demand those fields at registration. The email can serve as the Anime login handle.
+
+The server validates email format/length, password length, password confirmation, and notice acknowledgment before calling Supabase `signUp`. The notice version is included in *user-editable* signup metadata as a descriptive registration submission record; it must never be trusted for authorization or treated as independent proof of the notice/privacy lifecycle. Only the database trigger assigns the new account role `user`; self-selection of `dept_admin` is not supported.
+
+### Email confirmation handling
+
+- `/auth/callback` exchanges a Supabase PKCE `code` for a cookie session when an email template redirects back to the app.
+- `/auth/confirm` verifies a Supabase `token_hash` of type `email` if that style of email template is configured.
+- `/login` displays registration/verification guidance. If Supabase requires confirmation, signup returns no session and the user verifies their email before signing in.
+- The code **does not control whether email confirmation is enabled**, whether mail delivery is working, or the Supabase redirect allowlist. Configure and test these in the department's own Supabase dashboard before inviting people.
+
+#### Supabase configuration required for confirmation emails
+
+1. In **Authentication → Providers → Email**, enable the project's email-confirmation requirement if verification is intended.
+2. Under **Authentication → URL Configuration**, set Site URL to `https://tempanime-five.vercel.app` and allow `https://tempanime-five.vercel.app/auth/callback` (and local development URLs if used). The signup server action uses `NEXT_PUBLIC_APP_URL` if present, otherwise the fixed production domain above.
+3. For a direct token-hash confirmation link, change the **Confirm signup** email template to `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`. Alternatively, retain the default confirmation link; the `/auth/callback` route is present for redirects that include a PKCE `code`.
+4. If the production sender limits emails, configure an appropriate verified SMTP provider. **Email delivery and signup have not been end-to-end tested with actual accounts.**
+
+## Implemented access boundaries
+
+| Role | Assigned by | Route |
 | --- | --- | --- |
-| `user` | Database trigger on registration | `/home` (blank) |
-| `dept_admin` | Trusted database owner only | `/admin/home` (blank) |
+| `user` | Database trigger at account creation | `/home` (blank) |
+| `dept_admin` | Trusted database operator, never a public form | `/admin/home` (blank) |
 
-- `/` redirects according to the verified server-side Supabase identity and `public.department_roles` row.
-- `/home` and `/admin/home` verify identity **and** role on the server before returning the empty page.
-- Unauthenticated visitors go to `/login`. Missing/inaccessible roles fail closed to `/access-unavailable`.
-- `/login` and `/register` are minimal functional authentication pages. New accounts are always regular `user` accounts; supplier onboarding is intentionally deferred.
-- `/sign-out` provides a simple logout control without putting UI on either blank home page.
-- The proxy refreshes server-side auth cookies but does not grant roles.
-- The two departments use independent Supabase Auth databases and role tables. Equal emails do not merge their identities.
-- This is an initial route-level RBAC gate. Future admin server actions, tables, API endpoints and features **must implement independent backend/RLS authorization** before being added.
+`/` redirects by server-verified identity and a `public.department_roles` lookup. `/home` and `/admin/home` check both authentication and the required role on the server. Unauthenticated visitors go to `/login`; unreadable/missing roles go to `/access-unavailable`. `/sign-out` provides a simple logout. The proxy refreshes cookies but does **not** enforce global role authorization for future pages/APIs.
 
-## Promote a specifically authorized department admin
+The two departments have independent Supabase identities. Equal emails do not merge accounts across departments.
 
-Register the person's account in this department first. In the Supabase SQL Editor of **tempanimedb**, a trusted project owner can run (replace the placeholder with the intended email):
+## Local development
 
-```sql
-update public.department_roles
-set role = 'dept_admin'
-where user_id = (select id from auth.users where email = 'actual-admin@example.com');
+```sh
+npm install
+cp .env.example .env.local
+# Fill in your Supabase URL/key; set NEXT_PUBLIC_APP_URL to your local origin.
+npm run dev
+npm run build
 ```
 
-This operation is **not** available from registration, a browser, editable user metadata, or a normal account. The trigger inserts every new account with `user` status. Only trusted database operators can change a role. No administrator is pre-created or assumed.
+In the dashboard, also allowlist your local confirmation callback. The live Vercel integration already provides the department-specific Supabase URL and publishable key; no private service key is required in browser code.
 
-## Project setup
+## Database
 
-1. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to this department's own Supabase connection values (the existing Vercel integration provides them).
-2. `npm install` then `npm run dev`; `npm run build` verifies a production build.
-3. In Supabase Authentication settings, configure the intended site URL, email-confirmation behavior and redirect allowlist before inviting real users.
-4. The SQL in `database/department_role_foundation.sql` documents the schema already applied on this project. Do not apply it twice without checking migration history.
+The single `public.department_roles` table, RLS policy, signup trigger and `app_private` function are documented in `database/department_role_foundation.sql`, which was already applied to this department's Supabase project. **Do not rerun that SQL blindly.**
 
-No supplier roles, catalog features, streaming/publishing operations or business permissions are implied by this skeleton.
+A trusted database operator may promote a previously registered, intended account by finding its `auth.users.id` and updating `public.department_roles` to `dept_admin`. Ordinary authenticated users have no INSERT/UPDATE privileges on the roles table.
+
+**Not implemented:** supplier account types, business pages, manga chapter publishing, anime video ingestion/streaming, subscription payments, comprehensive authorization for future business endpoints, and a full account recovery/closure service.
