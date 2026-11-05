@@ -1,3 +1,5 @@
-export default function Home() {
-  return <main className="min-h-screen" />;
+import { redirectToRoleHome } from "@/lib/auth/access";
+
+export default async function RootPage() {
+  await redirectToRoleHome();
 }
